@@ -63,14 +63,14 @@ void printFat16Entry (const Fat16Entry& entry)
 	std::cout << std::endl;
 
 	std::cout << "Time last updated : "
-		<< entry.getTimeUpdated().hours << ":" 				// hours
-		<< entry.getTimeUpdated().minutes << ":" 			// minutes
-		<< entry.getTimeUpdated().twoSecondIntervals << std::endl; 	// two second periods
+		<< std::to_string( entry.getTimeUpdated().hours ) << ":" 				// hours
+		<< std::to_string( entry.getTimeUpdated().minutes ) << ":" 			// minutes
+		<< std::to_string( entry.getTimeUpdated().twoSecondIntervals ) << std::endl; 	// two second periods
 
 	std::cout << "Date last updated : "
-		<< entry.getDateUpdated().year << ":" 				// year
-		<< entry.getDateUpdated().month << ":" 				// month
-		<< entry.getDateUpdated().day << std::endl; 			// day
+		<< std::to_string( entry.getDateUpdated().year ) << ":" 				// year
+		<< std::to_string( entry.getDateUpdated().month ) << ":" 				// month
+		<< std::to_string( entry.getDateUpdated().day ) << std::endl; 			// day
 
 	std::cout << "Starting cluster num : " << std::to_string( entry.getStartingClusterNum() ) << std::endl;
 	std::cout << "Entry size in bytes : " << std::to_string( entry.getFileSizeInBytes() ) << std::endl;
@@ -141,30 +141,36 @@ int main()
 	for ( unsigned int partition = 0; partition < 4; partition++ )
 	{
 		// print partition table info
-		std::cout << "PARTITION #" << std::to_string( partition ) << " ----------------------------------------" << std::endl;
-		printPartitionTable( partitionTables[partition] );
+		// std::cout << "PARTITION #" << std::to_string( partition ) << " ----------------------------------------" << std::endl;
+		// printPartitionTable( partitionTables[partition] );
 
 		// read boot sector and print info
-		std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
+		// std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
 		uint8_t bsBuffer[BOOT_SEC_SIZE_IN_BYTES];
 		fseek( sdCardImage, partitionTables[partition].getOffsetLBA() * 512, SEEK_SET );
 		fread( bsBuffer, sizeof(uint8_t), BOOT_SEC_SIZE_IN_BYTES, sdCardImage );
 
 		BootSector bootSector( bsBuffer );
-		printBootSector( bootSector );
+		// printBootSector( bootSector );
 
 		// navigate to root directory and print entries
 		uint8_t entryBuffer[FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot()];
-		fseek( sdCardImage, (bootSector.getNumReservedSectors() + (bootSector.getNumFats() * bootSector.getNumSectorsPerFat())) *
-				bootSector.getSectorSizeInBytes(), SEEK_SET );
+		unsigned int firstEntryOffset = (bootSector.getNumReservedSectors() - 1 + bootSector.getNumSectorsPerFat() *
+						bootSector.getNumFats()) * bootSector.getSectorSizeInBytes();
+		// TODO find a way to make this an absolute offset instead
+		fseek( sdCardImage, firstEntryOffset, SEEK_CUR );
 		fread( entryBuffer, FAT16_ENTRY_SIZE, bootSector.getNumDirectoryEntriesInRoot(), sdCardImage );
 
 		for ( unsigned int entry = 0; entry < bootSector.getNumDirectoryEntriesInRoot(); entry++ )
 		{
 			Fat16Entry fat16Entry( &entryBuffer[entry * FAT16_ENTRY_SIZE] );
 
-			std::cout << "FAT16 ENTRY #" << std::to_string( entry ) << "-----------------------------------" << std::endl;
-			printFat16Entry( fat16Entry );
+			if ( ! fat16Entry.isUnusedEntry() && ! fat16Entry.isDiskVolumeLabel() && ! fat16Entry.isHiddenEntry()
+					&& ! fat16Entry.isSystemFile() && ! fat16Entry.isDeletedEntry() )
+			{
+				std::cout << "FAT16 ENTRY #" << std::to_string( entry ) << "-----------------------------------" << std::endl;
+				printFat16Entry( fat16Entry );
+			}
 		}
 	}
 
