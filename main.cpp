@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "Fat16Entry.hpp"
+#include "PartitionTable.hpp"
 
 // boot sector offsets and sizes
 #define BOOT_SEC_SIZE_IN_BYTES 				512
@@ -80,19 +81,6 @@
 #define PARTITION_TABLE_2_OFFSET PARTITION_TABLE_1_OFFSET + 16
 #define PARTITION_TABLE_3_OFFSET PARTITION_TABLE_1_OFFSET + (16 * 2)
 #define PARTITION_TABLE_4_OFFSET PARTITION_TABLE_1_OFFSET + (16 * 3)
-
-enum class PartitionType : uint8_t
-{
-	EMPTY 			= 0,
-	FAT12 			= 1,
-	FAT16_LTOREQ_32MB 	= 4,
-	EXTENDED_PARTITION 	= 5,
-	FAT16_GT_32MB 		= 6,
-	FAT32_LTOREQ_2GB 	= 11,
-	FAT32_LBA 		= 12,
-	FAT16_LBA 		= 14,
-	EXTENDED_LBA 		= 15
-};
 
 void printFat16Entry (const Fat16Entry& entry)
 {
@@ -409,74 +397,15 @@ class BootSector
 		uint16_t 	m_BackupSectorNum;
 };
 
-class PartitionTable
+void printPartitionTable (const PartitionTable& partitionTable)
 {
-	public:
-		PartitionTable (uint32_t* offset) :
-			m_Bootable( (*offset & 0x000000FF) ),
-			m_StartAddrCHS( (*offset & 0xFFFFFF00) >> 8 ),
-			m_PartitionType( (*(offset + 1) & 0x000000FF) ),
-			m_EndAddrCHS( (*(offset + 1) & 0xFFFFFF00) >> 8 ),
-			m_OffsetLBA( *(offset + 2) ),
-			m_PartitionSize( *(offset + 3) )
-		{
-		}
-
-		~PartitionTable() {}
-
-		bool isBootable() const
-		{
-			if ( m_Bootable == 0x80 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		uint32_t getStartAddressCHS() const
-		{
-			return m_StartAddrCHS;
-		}
-
-		uint32_t getEndAddressCHS() const
-		{
-			return m_EndAddrCHS;
-		}
-
-		PartitionType getPartitionType() const
-		{
-			return static_cast<PartitionType>( m_PartitionType );
-		}
-
-		uint32_t getOffsetLBA() const
-		{
-			return m_OffsetLBA;
-		}
-
-		uint32_t getPartitionSize() const
-		{
-			return m_PartitionSize;
-		}
-
-		void print() const
-		{
-			std::cout << "Is bootable : " << this->isBootable() << std::endl;
-			std::cout << "Start address chs : " << this->getStartAddressCHS() << std::endl;
-			std::cout << "Partion type : " << std::to_string( static_cast<uint8_t>(this->getPartitionType()) ) << std::endl;
-			std::cout << "End address chs : " << std::to_string( this->getEndAddressCHS() ) << std::endl;
-			std::cout << "Offset lba : " << std::to_string( this->getOffsetLBA() ) << std::endl;
-			std::cout << "Partition size : " << std::to_string( this->getPartitionSize() ) << std::endl;
-		}
-
-	private:
-		uint8_t  m_Bootable;
-		uint32_t m_StartAddrCHS;
-		uint8_t  m_PartitionType;
-		uint32_t m_EndAddrCHS;
-		uint32_t m_OffsetLBA;
-		uint32_t m_PartitionSize;
-};
+	std::cout << "Is bootable : " << partitionTable.isBootable() << std::endl;
+	std::cout << "Start address chs : " << partitionTable.getStartAddressCHS() << std::endl;
+	std::cout << "Partion type : " << std::to_string( static_cast<uint8_t>(partitionTable.getPartitionType()) ) << std::endl;
+	std::cout << "End address chs : " << std::to_string( partitionTable.getEndAddressCHS() ) << std::endl;
+	std::cout << "Offset lba : " << std::to_string( partitionTable.getOffsetLBA() ) << std::endl;
+	std::cout << "Partition size : " << std::to_string( partitionTable.getPartitionSize() ) << std::endl;
+}
 
 int main()
 {
@@ -504,7 +433,7 @@ int main()
 	{
 		// print partition table info
 		std::cout << "PARTITION #" << std::to_string( partition ) << " ----------------------------------------" << std::endl;
-		partitionTables[partition].print();
+		printPartitionTable( partitionTables[partition] );
 
 		// read boot sector and print info
 		std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
