@@ -4,22 +4,7 @@
 
 #include <iostream>
 
-// FAT16 entry offsets and sizes
-#define FAT16_ENTRY_SIZE 			32
-#define FAT16_FILENAME_OFFSET 			0x00
-#define FAT16_FILENAME_SIZE 			8
-#define FAT16_EXTENSION_OFFSET 			0x08
-#define FAT16_EXTENSION_SIZE 			3
-#define FAT16_ATTRIBUTES_OFFSET 		0x0B
-#define FAT16_ATTRIBUTES_SIZE 			1
-#define FAT16_TIME_LAST_UPDATED_OFFSET 		0x16
-#define FAT16_TIME_LAST_UPDATED_SIZE 		2
-#define FAT16_DATE_LAST_UPDATED_OFFSET 		0x18
-#define FAT16_DATE_LAST_UPDATED_SIZE 		2
-#define FAT16_STARTING_CLUSTER_NUM_OFFSET 	0x1A
-#define FAT16_STARTING_CLUSTER_NUM_SIZE 	2
-#define FAT16_FILE_SIZE_IN_BYTES_OFFSET 	0x1C
-#define FAT16_FILE_SIZE_IN_BYTES_SIZE 		4
+#include "Fat16Entry.hpp"
 
 // boot sector offsets and sizes
 #define BOOT_SEC_SIZE_IN_BYTES 				512
@@ -109,230 +94,67 @@ enum class PartitionType : uint8_t
 	EXTENDED_LBA 		= 15
 };
 
-class Fat16Entry
+void printFat16Entry (const Fat16Entry& entry)
 {
-	public:
-		Fat16Entry (uint8_t* offset) :
-			m_Filename{ 0 },
-			m_Extension{ 0 },
-			m_FileAttributes( offset[FAT16_ATTRIBUTES_OFFSET] ),
-			m_TimeLastUpdated( (offset[FAT16_TIME_LAST_UPDATED_OFFSET + 1] << 8) | offset[FAT16_TIME_LAST_UPDATED_OFFSET] ),
-			m_DateLastUpdated( (offset[FAT16_DATE_LAST_UPDATED_OFFSET + 1] << 8) | offset[FAT16_DATE_LAST_UPDATED_OFFSET] ),
-			m_StartingClusterNum( (offset[FAT16_STARTING_CLUSTER_NUM_OFFSET + 1] << 8) | offset[FAT16_STARTING_CLUSTER_NUM_OFFSET] ),
-			m_FileSizeInBytes( (offset[FAT16_FILE_SIZE_IN_BYTES_OFFSET + 3] << 24)
-						| (offset[FAT16_FILE_SIZE_IN_BYTES_OFFSET + 2] << 16)
-						| (offset[FAT16_FILE_SIZE_IN_BYTES_OFFSET + 1] << 8)
-						| offset[FAT16_FILE_SIZE_IN_BYTES_OFFSET] )
-		{
-			for ( unsigned int character = 0; character < FAT16_FILENAME_SIZE; character++ )
-			{
-				m_Filename[character] = offset[FAT16_FILENAME_OFFSET + character];
-			}
+	std::cout << "Filename : " << entry.getFilenameDisplay() << " : ";
+	if ( entry.isUnusedEntry() )
+	{
+		std::cout << "(UNUSED ENTRY)";
+	}
+	else if ( entry.isDeletedEntry() )
+	{
+		std::cout << "(DELETED)";
+	}
+	else if ( entry.isRootDirectory() )
+	{
+		std::cout << "(ROOT DIRECTORY)";
+	}
+	else if ( entry.isDirectory() && ! entry.clusterNumIsParentDirectory() )
+	{
+		std::cout << "(DIRECTORY)";
+	}
+	else if ( entry.isDirectory() && entry.clusterNumIsParentDirectory() )
+	{
+		std::cout << "(DIRECTORY WITH PARENT DIRECTORY)";
+	}
+	std::cout << std::endl;
 
-			for ( unsigned int character = 0; character < FAT16_EXTENSION_SIZE; character++ )
-			{
-				m_Extension[character] = offset[FAT16_EXTENSION_OFFSET + character];
-			}
-		}
-		~Fat16Entry() {}
+	std::cout << "Attributes : ";
+	if ( entry.isReadOnly() )
+	{
+		std::cout << "(READ ONLY) ";
+	}
+	if ( entry.isHiddenEntry() )
+	{
+		std::cout << "(HIDDEN) ";
+	}
+	if ( entry.isSystemFile() )
+	{
+		std::cout << "(SYSTEM) ";
+	}
+	if ( entry.isDiskVolumeLabel() )
+	{
+		std::cout << "(DISK VOLUME LABEL) ";
+	}
+	if ( entry.isSubdirectory() )
+	{
+		std::cout << "(SUBDIRECTORY) ";
+	}
+	std::cout << std::endl;
 
-		bool isUnusedEntry() const
-		{
-			if ( m_Filename[0] == 0x00 )
-			{
-				return true;
-			}
+	std::cout << "Time last updated : "
+		<< entry.getTimeUpdated().hours << ":" 				// hours
+		<< entry.getTimeUpdated().minutes << ":" 			// minutes
+		<< entry.getTimeUpdated().twoSecondIntervals << std::endl; 	// two second periods
 
-			return false;
-		}
+	std::cout << "Date last updated : "
+		<< entry.getDateUpdated().year << ":" 				// year
+		<< entry.getDateUpdated().month << ":" 				// month
+		<< entry.getDateUpdated().day << std::endl; 			// day
 
-		bool isDeletedFile() const
-		{
-			if ( m_Filename[0] == 0xE5 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isDirectory() const
-		{
-			if ( m_Filename[0] == 0x2E )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isRootDirectory() const
-		{
-			// TODO is this right?
-			if ( m_Filename[0] == 0x2E && m_StartingClusterNum == 0 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool clusterNumIsParentDirectory() const
-		{
-			if ( m_Filename[0] == 0x2E && m_Filename[1] == 0x2E )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isReadOnly() const
-		{
-			if ( m_FileAttributes & 0x01 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isHiddenEntry() const
-		{
-			if ( m_FileAttributes & 0x02 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isSystemFile() const
-		{
-			if ( m_FileAttributes & 0x04 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isDiskVolumeLabel() const
-		{
-			if ( m_FileAttributes & 0x08 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		bool isSubdirectory() const
-		{
-			if ( m_FileAttributes & 0x10 )
-			{
-				return true;
-			}
-
-			return false;
-		}
-
-		void print() const
-		{
-			char filename[FAT16_FILENAME_SIZE + 1]; // plus 1 for string terminator
-			for ( unsigned int character = 0; character < FAT16_FILENAME_SIZE; character++ )
-			{
-				filename[character] = m_Filename[character];
-			}
-			filename[FAT16_FILENAME_SIZE] = '\0';
-
-			char extension[FAT16_EXTENSION_SIZE + 1]; // plus 1 for string terminator
-			for ( unsigned int character = 0; character < FAT16_EXTENSION_SIZE; character++ )
-			{
-				extension[character] = m_Extension[character];
-			}
-			extension[FAT16_EXTENSION_SIZE] = '\0';
-
-			std::cout << "Filename : ";
-			if ( this->isUnusedEntry() )
-			{
-				std::cout << "UNUSED ENTRY";
-			}
-			else if ( this->isDeletedFile() )
-			{
-				std::cout << &filename[1] << "." << extension << " (DELETED)";
-			}
-			else if ( this->isRootDirectory() )
-			{
-				std::cout << "(ROOT DIRECTORY)";
-			}
-			else if ( this->isDirectory() && ! this->clusterNumIsParentDirectory() )
-			{
-				std::cout << &filename[1] << " (DIRECTORY)";
-			}
-			else if ( this->isDirectory() && this->clusterNumIsParentDirectory() )
-			{
-				std::cout << &filename[2] << " (DIRECTORY WITH PARENT DIRECTORY)";
-			}
-			else if ( filename[0] == 0x05 )
-			{
-				filename[0] = 0xE5;
-				std::cout << filename << "." << extension;
-			}
-			else
-			{
-				std::cout << filename << "." << extension;
-			}
-			std::cout << std::endl;
-
-			std::cout << "Attributes : ";
-			if ( this->isReadOnly() )
-			{
-				std::cout << "(READ ONLY) ";
-			}
-			if ( this->isHiddenEntry() )
-			{
-				std::cout << "(HIDDEN) ";
-			}
-			if ( this->isSystemFile() )
-			{
-				std::cout << "(SYSTEM) ";
-			}
-			if ( this->isDiskVolumeLabel() )
-			{
-				std::cout << "(DISK VOLUME LABEL) ";
-			}
-			if ( this->isSubdirectory() )
-			{
-				std::cout << "(SUBDIRECTORY) ";
-			}
-			std::cout << std::endl;
-
-			// TODO maybe create a FAT16 time struct and a function to return it?
-			std::cout << "Time last updated : "
-				<< std::to_string( m_TimeLastUpdated >> 11 ) << ":" 				// hours
-				<< std::to_string( (m_TimeLastUpdated & 0b0000011111100000) >> 5 ) << ":" 	// minutes
-				<< std::to_string( (m_TimeLastUpdated & 0b0000000000011111) ) << std::endl; 	// two second periods
-
-			// TODO maybe create a FAT16 date struct and a function to return it?
-			std::cout << "Date last updated : "
-				<< std::to_string( m_DateLastUpdated >> 9 ) << ":" 				// year
-				<< std::to_string( (m_DateLastUpdated & 0b0000000111100000) >> 5 ) << ":" 	// month
-				<< std::to_string( (m_DateLastUpdated & 0b0000000000011111) ) << std::endl; 	// day
-
-			std::cout << "Starting cluster num : " << std::to_string( m_StartingClusterNum ) << std::endl;
-			std::cout << "Entry size in bytes : " << std::to_string( m_FileSizeInBytes ) << std::endl;
-		}
-
-	private:
-		char 		m_Filename[FAT16_FILENAME_SIZE];
-		char 		m_Extension[FAT16_EXTENSION_SIZE];
-		uint8_t 	m_FileAttributes;
-		uint16_t 	m_TimeLastUpdated;
-		uint16_t 	m_DateLastUpdated;
-		uint16_t 	m_StartingClusterNum;
-		uint32_t 	m_FileSizeInBytes;
-};
+	std::cout << "Starting cluster num : " << std::to_string( entry.getStartingClusterNum() ) << std::endl;
+	std::cout << "Entry size in bytes : " << std::to_string( entry.getFileSizeInBytes() ) << std::endl;
+}
 
 class BootSector
 {
@@ -704,7 +526,7 @@ int main()
 			Fat16Entry fat16Entry( &entryBuffer[entry * FAT16_ENTRY_SIZE] );
 
 			std::cout << "FAT16 ENTRY #" << std::to_string( entry ) << "-----------------------------------" << std::endl;
-			fat16Entry.print();
+			printFat16Entry( fat16Entry );
 		}
 	}
 
