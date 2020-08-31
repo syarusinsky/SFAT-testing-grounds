@@ -147,7 +147,7 @@ int main()
 		// read boot sector and print info
 		// std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
 		uint8_t bsBuffer[BOOT_SEC_SIZE_IN_BYTES];
-		fseek( sdCardImage, partitionTables[partition].getOffsetLBA() * 512, SEEK_SET );
+		fseek( sdCardImage, partitionTables[partition].getOffsetLBA() * BOOT_SEC_SIZE_IN_BYTES, SEEK_SET );
 		fread( bsBuffer, sizeof(uint8_t), BOOT_SEC_SIZE_IN_BYTES, sdCardImage );
 
 		BootSector bootSector( bsBuffer );
@@ -155,21 +155,70 @@ int main()
 
 		// navigate to root directory and print entries
 		uint8_t entryBuffer[FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot()];
-		unsigned int firstEntryOffset = (bootSector.getNumReservedSectors() - 1 + bootSector.getNumSectorsPerFat() *
-						bootSector.getNumFats()) * bootSector.getSectorSizeInBytes();
-		// TODO find a way to make this an absolute offset instead
-		fseek( sdCardImage, firstEntryOffset, SEEK_CUR );
+		unsigned int firstEntryOffset = (partitionTables[partition].getOffsetLBA() + bootSector.getNumReservedSectors() +
+						bootSector.getNumFats() * bootSector.getNumSectorsPerFat()) * bootSector.getSectorSizeInBytes();
+		fseek( sdCardImage, firstEntryOffset, SEEK_SET );
 		fread( entryBuffer, FAT16_ENTRY_SIZE, bootSector.getNumDirectoryEntriesInRoot(), sdCardImage );
 
 		for ( unsigned int entry = 0; entry < bootSector.getNumDirectoryEntriesInRoot(); entry++ )
 		{
 			Fat16Entry fat16Entry( &entryBuffer[entry * FAT16_ENTRY_SIZE] );
 
+			// if we find an unused entry is found, that's the end of the directory entries
+			if ( fat16Entry.isUnusedEntry() )
+			{
+				break;
+			}
+
 			if ( ! fat16Entry.isUnusedEntry() && ! fat16Entry.isDiskVolumeLabel() && ! fat16Entry.isHiddenEntry()
 					&& ! fat16Entry.isSystemFile() && ! fat16Entry.isDeletedEntry() )
 			{
 				std::cout << "FAT16 ENTRY #" << std::to_string( entry ) << "-----------------------------------" << std::endl;
 				printFat16Entry( fat16Entry );
+
+				// if txt file, print file to console
+				const char* extension = fat16Entry.getExtensionRaw();
+				unsigned int dataOffset = firstEntryOffset + ( bootSector.getNumDirectoryEntriesInRoot() * FAT16_ENTRY_SIZE );
+				if ( extension[0] == 'T' && extension[1] == 'X' && extension[2] == 'T' )
+				{
+					// create a buffer for the file to live in, then load it with the file contents
+					uint8_t fileBuffer[ fat16Entry.getFileSizeInBytes() ] = { 0 };
+					unsigned int fileOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
+									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
+					fseek( sdCardImage, fileOffset, SEEK_SET );
+					fread( fileBuffer, sizeof(uint8_t), fat16Entry.getFileSizeInBytes(), sdCardImage );
+
+					for ( unsigned int character = 0; character < fat16Entry.getFileSizeInBytes(); character++ )
+					{
+						std::cout << fileBuffer[character];
+					}
+					std::cout << std::endl;
+				}
+				else if ( fat16Entry.isSubdirectory() )
+				{
+					uint8_t subdirectoryBuffer[FAT16_ENTRY_SIZE * 7];
+					unsigned int subdirectoryOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
+									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
+					std::cout << "!-!-!-! SUBDIRECTORY OFFSET  :  " << std::to_string( subdirectoryOffset ) << std::endl;
+					fseek( sdCardImage, subdirectoryOffset, SEEK_SET );
+					fread( subdirectoryBuffer, sizeof(uint8_t), FAT16_ENTRY_SIZE * 7, sdCardImage );
+
+					// TODO how do we know how many directory entries are in a cluster???
+					Fat16Entry subdirectoryEntry( subdirectoryBuffer );
+					printFat16Entry( subdirectoryEntry );
+					Fat16Entry subdirectoryEntry2( &subdirectoryBuffer[FAT16_ENTRY_SIZE] );
+					printFat16Entry( subdirectoryEntry2 );
+					Fat16Entry subdirectoryEntry3( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 2] );
+					printFat16Entry( subdirectoryEntry3 );
+					Fat16Entry subdirectoryEntry4( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 3] );
+					printFat16Entry( subdirectoryEntry4 );
+					Fat16Entry subdirectoryEntry5( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 4] );
+					printFat16Entry( subdirectoryEntry5 );
+					Fat16Entry subdirectoryEntry6( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 5] );
+					printFat16Entry( subdirectoryEntry6 );
+					Fat16Entry subdirectoryEntry7( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 6] );
+					printFat16Entry( subdirectoryEntry7 );
+				}
 			}
 		}
 	}
