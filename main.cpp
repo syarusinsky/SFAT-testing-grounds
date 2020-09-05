@@ -137,6 +137,8 @@ int main()
 	PartitionTable partitionTables[4] = { PartitionTable( ptBuffer ), PartitionTable( ptBuffer + 4 ), PartitionTable( ptBuffer + 8 ),
 						PartitionTable( ptBuffer + 12 ) };
 
+	// TODO TOMORROW I NEED TO MOVE StorageMediaInterfaces TO DEVLIB, AND CHANGE ARMOR8, STM32F302X8, and SFAT LIBS
+
 	// printing out partition table info
 	for ( unsigned int partition = 0; partition < 4; partition++ )
 	{

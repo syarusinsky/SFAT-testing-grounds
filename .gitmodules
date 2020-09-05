@@ -1,3 +1,6 @@
 [submodule "SFAT"]
 	path = SFAT
 	url = https://github.com/syarusinsky/SFAT.git
+[submodule "DevLib"]
+	path = DevLib
+	url = https://github.com/syarusinsky/DevLib.git
