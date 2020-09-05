@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#include "CPPFile.hpp"
 #include "Fat16Entry.hpp"
 #include "PartitionTable.hpp"
 #include "BootSector.hpp"
@@ -121,25 +122,19 @@ int main()
 	// TODO we need a way of figuring out if the drive is partition (boot sector in each partition) or not partition (boot sector at beginning)
 	// TODO we need to check partition type for compatibility (are all FAT16 types okay?)
 
-	FILE* sdCardImage = fopen( "SDCard.img", "rb" );
+	// FILE* sdCardImage = fopen( "SDCard.img", "rb" );
+	CPPFile sdCardFile( "SDCard.img" );
+	if ( sdCardFile.needsInitialization() )
+	{
+		std::cout << "Couldn't find file :(" << std::endl;
+	}
 
-	// read each partition table entry (we're doing it this way just to test if the defines work)
-	uint32_t ptBuffer[4 * 4]; // since there are 4 partition tables
-	fseek( sdCardImage, PARTITION_TABLE_1_OFFSET, SEEK_SET );
-	fread( &ptBuffer[0], sizeof(uint32_t), 4, sdCardImage );
-	fseek( sdCardImage, PARTITION_TABLE_2_OFFSET, SEEK_SET );
-	fread( &ptBuffer[4], sizeof(uint32_t), 4, sdCardImage );
-	fseek( sdCardImage, PARTITION_TABLE_3_OFFSET, SEEK_SET );
-	fread( &ptBuffer[8], sizeof(uint32_t), 4, sdCardImage );
-	fseek( sdCardImage, PARTITION_TABLE_4_OFFSET, SEEK_SET );
-	fread( &ptBuffer[12], sizeof(uint32_t), 4, sdCardImage );
-
+	// load all four partition tables
+	uint32_t* ptBuffer = static_cast<uint32_t*>( sdCardFile.readFromMedia( sizeof(uint32_t) * 4, PARTITION_TABLE_1_OFFSET ).getRaw() );
 	PartitionTable partitionTables[4] = { PartitionTable( ptBuffer ), PartitionTable( ptBuffer + 4 ), PartitionTable( ptBuffer + 8 ),
 						PartitionTable( ptBuffer + 12 ) };
+	delete ptBuffer;
 
-	// TODO TOMORROW I NEED TO MOVE StorageMediaInterfaces TO DEVLIB, AND CHANGE ARMOR8, STM32F302X8, and SFAT LIBS
-
-	// printing out partition table info
 	for ( unsigned int partition = 0; partition < 4; partition++ )
 	{
 		// print partition table info
@@ -148,19 +143,17 @@ int main()
 
 		// read boot sector and print info
 		// std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
-		uint8_t bsBuffer[BOOT_SEC_SIZE_IN_BYTES];
-		fseek( sdCardImage, partitionTables[partition].getOffsetLBA() * BOOT_SEC_SIZE_IN_BYTES, SEEK_SET );
-		fread( bsBuffer, sizeof(uint8_t), BOOT_SEC_SIZE_IN_BYTES, sdCardImage );
-
+		uint8_t* bsBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia( BOOT_SEC_SIZE_IN_BYTES,
+								partitionTables[partition].getOffsetLBA() * 512 ).getRaw() ); // assuming 512 sec size
 		BootSector bootSector( bsBuffer );
+		delete bsBuffer;
 		// printBootSector( bootSector );
 
 		// navigate to root directory and print entries
-		uint8_t entryBuffer[FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot()];
 		unsigned int firstEntryOffset = (partitionTables[partition].getOffsetLBA() + bootSector.getNumReservedSectors() +
 						bootSector.getNumFats() * bootSector.getNumSectorsPerFat()) * bootSector.getSectorSizeInBytes();
-		fseek( sdCardImage, firstEntryOffset, SEEK_SET );
-		fread( entryBuffer, FAT16_ENTRY_SIZE, bootSector.getNumDirectoryEntriesInRoot(), sdCardImage );
+		uint8_t* entryBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot(),
+								firstEntryOffset).getRaw() );
 
 		for ( unsigned int entry = 0; entry < bootSector.getNumDirectoryEntriesInRoot(); entry++ )
 		{
@@ -184,26 +177,25 @@ int main()
 				if ( extension[0] == 'T' && extension[1] == 'X' && extension[2] == 'T' )
 				{
 					// create a buffer for the file to live in, then load it with the file contents
-					uint8_t fileBuffer[ fat16Entry.getFileSizeInBytes() ] = { 0 };
 					unsigned int fileOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
 									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					fseek( sdCardImage, fileOffset, SEEK_SET );
-					fread( fileBuffer, sizeof(uint8_t), fat16Entry.getFileSizeInBytes(), sdCardImage );
+					uint8_t* fileBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(fat16Entry.getFileSizeInBytes(),
+											fileOffset).getRaw() );
 
 					for ( unsigned int character = 0; character < fat16Entry.getFileSizeInBytes(); character++ )
 					{
 						std::cout << fileBuffer[character];
 					}
 					std::cout << std::endl;
+
+					delete fileBuffer;
 				}
 				else if ( fat16Entry.isSubdirectory() )
 				{
-					uint8_t subdirectoryBuffer[FAT16_ENTRY_SIZE * 7];
 					unsigned int subdirectoryOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
 									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					std::cout << "!-!-!-! SUBDIRECTORY OFFSET  :  " << std::to_string( subdirectoryOffset ) << std::endl;
-					fseek( sdCardImage, subdirectoryOffset, SEEK_SET );
-					fread( subdirectoryBuffer, sizeof(uint8_t), FAT16_ENTRY_SIZE * 7, sdCardImage );
+					uint8_t* subdirectoryBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * 7,
+												subdirectoryOffset).getRaw() );
 
 					// TODO how do we know how many directory entries are in a cluster???
 					Fat16Entry subdirectoryEntry( subdirectoryBuffer );
@@ -220,11 +212,14 @@ int main()
 					printFat16Entry( subdirectoryEntry6 );
 					Fat16Entry subdirectoryEntry7( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 6] );
 					printFat16Entry( subdirectoryEntry7 );
+
+					delete subdirectoryBuffer;
 				}
 			}
 		}
+
+		delete entryBuffer;
 	}
 
-	fclose( sdCardImage );
 	return 0;
 }
