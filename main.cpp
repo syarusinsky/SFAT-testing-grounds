@@ -130,7 +130,7 @@ int main()
 	}
 
 	// load all four partition tables
-	uint32_t* ptBuffer = static_cast<uint32_t*>( sdCardFile.readFromMedia( sizeof(uint32_t) * 4, PARTITION_TABLE_1_OFFSET ).getRaw() );
+	uint32_t* ptBuffer = sdCardFile.readFromMedia( sizeof(uint32_t) * 4, PARTITION_TABLE_1_OFFSET ).getPtr<uint32_t>();
 	PartitionTable partitionTables[4] = { PartitionTable( ptBuffer ), PartitionTable( ptBuffer + 4 ), PartitionTable( ptBuffer + 8 ),
 						PartitionTable( ptBuffer + 12 ) };
 	delete ptBuffer;
@@ -143,8 +143,8 @@ int main()
 
 		// read boot sector and print info
 		// std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
-		uint8_t* bsBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia( BOOT_SEC_SIZE_IN_BYTES,
-								partitionTables[partition].getOffsetLBA() * 512 ).getRaw() ); // assuming 512 sec size
+		uint8_t* bsBuffer = sdCardFile.readFromMedia( BOOT_SEC_SIZE_IN_BYTES,
+						partitionTables[partition].getOffsetLBA() * 512 ).getPtr<uint8_t>();
 		BootSector bootSector( bsBuffer );
 		delete bsBuffer;
 		// printBootSector( bootSector );
@@ -152,8 +152,8 @@ int main()
 		// navigate to root directory and print entries
 		unsigned int firstEntryOffset = (partitionTables[partition].getOffsetLBA() + bootSector.getNumReservedSectors() +
 						bootSector.getNumFats() * bootSector.getNumSectorsPerFat()) * bootSector.getSectorSizeInBytes();
-		uint8_t* entryBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot(),
-								firstEntryOffset).getRaw() );
+		uint8_t* entryBuffer = sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot(),
+								firstEntryOffset).getPtr<uint8_t>();
 
 		for ( unsigned int entry = 0; entry < bootSector.getNumDirectoryEntriesInRoot(); entry++ )
 		{
@@ -179,8 +179,8 @@ int main()
 					// create a buffer for the file to live in, then load it with the file contents
 					unsigned int fileOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
 									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					uint8_t* fileBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(fat16Entry.getFileSizeInBytes(),
-											fileOffset).getRaw() );
+					uint8_t* fileBuffer = sdCardFile.readFromMedia(fat16Entry.getFileSizeInBytes(),
+											fileOffset).getPtr<uint8_t>();
 
 					for ( unsigned int character = 0; character < fat16Entry.getFileSizeInBytes(); character++ )
 					{
@@ -194,8 +194,8 @@ int main()
 				{
 					unsigned int subdirectoryOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
 									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					uint8_t* subdirectoryBuffer = static_cast<uint8_t*>( sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * 7,
-												subdirectoryOffset).getRaw() );
+					uint8_t* subdirectoryBuffer = sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * 7,
+												subdirectoryOffset).getPtr<uint8_t>();
 
 					// TODO how do we know how many directory entries are in a cluster???
 					Fat16Entry subdirectoryEntry( subdirectoryBuffer );
