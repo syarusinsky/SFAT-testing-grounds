@@ -1,3 +1,6 @@
+// to mount sd card image sudo mount -o loop,offset=65536,umask=000 /home/siike92/SFAT-testing-grounds/SDCard.img /home/siike92/mnt/sd
+// where offset = block size(usually 512) * start block(usually 128)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -8,12 +11,7 @@
 #include "Fat16Entry.hpp"
 #include "PartitionTable.hpp"
 #include "BootSector.hpp"
-
-// parition table offsets
-#define PARTITION_TABLE_1_OFFSET 0x1BE
-#define PARTITION_TABLE_2_OFFSET PARTITION_TABLE_1_OFFSET + 16
-#define PARTITION_TABLE_3_OFFSET PARTITION_TABLE_1_OFFSET + (16 * 2)
-#define PARTITION_TABLE_4_OFFSET PARTITION_TABLE_1_OFFSET + (16 * 3)
+#include "Fat16FileManager.hpp"
 
 void printFat16Entry (const Fat16Entry& entry)
 {
@@ -117,108 +115,105 @@ void printPartitionTable (const PartitionTable& partitionTable)
 	std::cout << "Partition size : " << std::to_string( partitionTable.getPartitionSize() ) << std::endl;
 }
 
+void printAllEntriesInDirectory (Fat16FileManager& fileManager)
+{
+	std::vector<Fat16Entry>& directoryEntries = fileManager.getCurrentDirectoryEntries();
+	std::vector<Fat16Entry>::iterator entry = directoryEntries.begin();
+
+	unsigned int entryNum = 0;
+	while ( ! entry->isUnusedEntry() && entry != directoryEntries.end() )
+	{
+
+		if ( ! entry->isDeletedEntry()
+				&& ! entry->isHiddenEntry()
+				&& ! entry->isSystemFile()
+				&& ! entry->isDiskVolumeLabel() )
+		{
+			std::cout << "ENTRY NUMBER " << std::to_string( entryNum ) << " ------------------" << std::endl;
+			printFat16Entry( *entry );
+			std::cout << std::endl;
+
+		}
+
+		entry++;
+		entryNum++;
+	}
+}
+
 int main()
 {
-	// TODO we need a way of figuring out if the drive is partition (boot sector in each partition) or not partition (boot sector at beginning)
-	// TODO we need to check partition type for compatibility (are all FAT16 types okay?)
-
-	// FILE* sdCardImage = fopen( "SDCard.img", "rb" );
-	CPPFile sdCardFile( "SDCard.img" );
+	CPPFile sdCardFile( "SDCard.img", true );
 	if ( sdCardFile.needsInitialization() )
 	{
 		std::cout << "Couldn't find file :(" << std::endl;
 	}
 
-	// load all four partition tables
-	uint32_t* ptBuffer = sdCardFile.readFromMedia( sizeof(uint32_t) * 4, PARTITION_TABLE_1_OFFSET ).getPtr<uint32_t>();
-	PartitionTable partitionTables[4] = { PartitionTable( ptBuffer ), PartitionTable( ptBuffer + 4 ), PartitionTable( ptBuffer + 8 ),
-						PartitionTable( ptBuffer + 12 ) };
-	delete ptBuffer;
-
-	for ( unsigned int partition = 0; partition < 4; partition++ )
+	Fat16FileManager fileManager( sdCardFile );
+	if ( ! fileManager.isValidFatFileSystem() )
 	{
-		// print partition table info
-		// std::cout << "PARTITION #" << std::to_string( partition ) << " ----------------------------------------" << std::endl;
-		// printPartitionTable( partitionTables[partition] );
+		std::cout << "Couldn't find a valid FAT file system :(" << std::endl;
+	}
 
-		// read boot sector and print info
-		// std::cout << "PARTITION #" << std::to_string( partition ) << " BOOT SECTOR ----------------------------" << std::endl;
-		uint8_t* bsBuffer = sdCardFile.readFromMedia( BOOT_SEC_SIZE_IN_BYTES,
-						partitionTables[partition].getOffsetLBA() * 512 ).getPtr<uint8_t>();
-		BootSector bootSector( bsBuffer );
-		delete bsBuffer;
-		// printBootSector( bootSector );
+	printAllEntriesInDirectory( fileManager );
 
-		// navigate to root directory and print entries
-		unsigned int firstEntryOffset = (partitionTables[partition].getOffsetLBA() + bootSector.getNumReservedSectors() +
-						bootSector.getNumFats() * bootSector.getNumSectorsPerFat()) * bootSector.getSectorSizeInBytes();
-		uint8_t* entryBuffer = sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * bootSector.getNumDirectoryEntriesInRoot(),
-								firstEntryOffset).getPtr<uint8_t>();
+	std::cout << "Navigate through FAT16 file system (type 'print' to print current directory or type 'quit' to exit)" << std::endl;
+	while ( true )
+	{
+		std::string inputVal;
 
-		for ( unsigned int entry = 0; entry < bootSector.getNumDirectoryEntriesInRoot(); entry++ )
+		std::cout << "Select entry by number: ";
+		std::getline( std::cin, inputVal );
+
+		if ( inputVal == "quit" )
 		{
-			Fat16Entry fat16Entry( &entryBuffer[entry * FAT16_ENTRY_SIZE] );
-
-			// if we find an unused entry is found, that's the end of the directory entries
-			if ( fat16Entry.isUnusedEntry() )
+			break;
+		}
+		else if ( inputVal == "print" )
+		{
+			printAllEntriesInDirectory( fileManager );
+		}
+		else
+		{
+			try
 			{
-				break;
-			}
+				unsigned int entryNum = static_cast<unsigned int>( std::stoi(inputVal) );
+				std::cout << "Value chosen: " << std::to_string( entryNum ) << std::endl;
 
-			if ( ! fat16Entry.isUnusedEntry() && ! fat16Entry.isDiskVolumeLabel() && ! fat16Entry.isHiddenEntry()
-					&& ! fat16Entry.isSystemFile() && ! fat16Entry.isDeletedEntry() )
-			{
-				std::cout << "FAT16 ENTRY #" << std::to_string( entry ) << "-----------------------------------" << std::endl;
-				printFat16Entry( fat16Entry );
+				Fat16Entry entry = fileManager.selectEntry( entryNum );
+				printFat16Entry( entry );
 
-				// if txt file, print file to console
-				const char* extension = fat16Entry.getExtensionRaw();
-				unsigned int dataOffset = firstEntryOffset + ( bootSector.getNumDirectoryEntriesInRoot() * FAT16_ENTRY_SIZE );
-				if ( extension[0] == 'T' && extension[1] == 'X' && extension[2] == 'T' )
+				SharedData<uint8_t> fileData = fileManager.getSelectedFileNextSector();
+				unsigned int fileDataByteCounter = 0;
+				for ( unsigned int character = 0; character < entry.getFileSizeInBytes(); character++ )
 				{
-					// create a buffer for the file to live in, then load it with the file contents
-					unsigned int fileOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
-									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					uint8_t* fileBuffer = sdCardFile.readFromMedia(fat16Entry.getFileSizeInBytes(),
-											fileOffset).getPtr<uint8_t>();
-
-					for ( unsigned int character = 0; character < fat16Entry.getFileSizeInBytes(); character++ )
+					if ( character == 0 )
 					{
-						std::cout << fileBuffer[character];
+						std::cout << std::endl;
+						std::cout << "FILE OUTPUT ------------------------------------------------------" << std::endl;
 					}
-					std::cout << std::endl;
 
-					delete fileBuffer;
+					// if we've read all the bytes in this sector, get a new one
+					if ( fileDataByteCounter == fileData.getSizeInBytes() )
+					{
+						fileData = fileManager.getSelectedFileNextSector();
+						fileDataByteCounter = 0;
+					}
+
+					std::cout << fileData[fileDataByteCounter];
+
+					fileDataByteCounter++;
 				}
-				else if ( fat16Entry.isSubdirectory() )
-				{
-					unsigned int subdirectoryOffset = dataOffset + ( (fat16Entry.getStartingClusterNum() - 2) *
-									bootSector.getNumSectorsPerCluster() * bootSector.getSectorSizeInBytes() );
-					uint8_t* subdirectoryBuffer = sdCardFile.readFromMedia(FAT16_ENTRY_SIZE * 7,
-												subdirectoryOffset).getPtr<uint8_t>();
-
-					// TODO how do we know how many directory entries are in a cluster???
-					Fat16Entry subdirectoryEntry( subdirectoryBuffer );
-					printFat16Entry( subdirectoryEntry );
-					Fat16Entry subdirectoryEntry2( &subdirectoryBuffer[FAT16_ENTRY_SIZE] );
-					printFat16Entry( subdirectoryEntry2 );
-					Fat16Entry subdirectoryEntry3( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 2] );
-					printFat16Entry( subdirectoryEntry3 );
-					Fat16Entry subdirectoryEntry4( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 3] );
-					printFat16Entry( subdirectoryEntry4 );
-					Fat16Entry subdirectoryEntry5( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 4] );
-					printFat16Entry( subdirectoryEntry5 );
-					Fat16Entry subdirectoryEntry6( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 5] );
-					printFat16Entry( subdirectoryEntry6 );
-					Fat16Entry subdirectoryEntry7( &subdirectoryBuffer[FAT16_ENTRY_SIZE * 6] );
-					printFat16Entry( subdirectoryEntry7 );
-
-					delete subdirectoryBuffer;
-				}
+				std::cout << std::endl;
+			}
+			catch ( std::invalid_argument )
+			{
+				std::cout << "Couldn't convert that string to a valid number" << std::endl;
+			}
+			catch ( std::out_of_range )
+			{
+				std::cout << "This number is out of integer range" << std::endl;
 			}
 		}
-
-		delete entryBuffer;
 	}
 
 	return 0;
