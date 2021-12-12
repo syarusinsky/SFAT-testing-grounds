@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <iostream>
 
@@ -142,7 +143,7 @@ void printAllEntriesInDirectory (Fat16FileManager& fileManager)
 
 int main()
 {
-	CPPFile sdCardFile( "SDCard.img", true );
+	CPPFile sdCardFile( "SDCard.img" );
 	if ( sdCardFile.needsInitialization() )
 	{
 		std::cout << "Couldn't find file :(" << std::endl;
@@ -154,9 +155,24 @@ int main()
 		std::cout << "Couldn't find a valid FAT file system :(" << std::endl;
 	}
 
+	std::vector<PartitionTable>* partitions = fileManager.getPartitionTables();
+	for ( unsigned int partitionTableNum = 0; partitionTableNum < partitions->size(); partitionTableNum++ )
+	{
+		std::cout << "PARTITION TABLE " << std::to_string(partitionTableNum) << " ---------------------------------" << std::endl;
+		printPartitionTable( partitions->at(partitionTableNum) );
+		std::cout << "END OF PARTITION TABLE " << std::to_string(partitionTableNum) << " ---------------------------------" << std::endl;
+	}
+	std::cout << std::endl << std::endl << std::endl;
+
+	std::cout << "BOOT SECTOR --------------------------------------------------------------" << std::endl;
+	printBootSector( *fileManager.getActiveBootSector() );
+	std::cout << "END OF BOOT SECTOR -------------------------------------------------------" << std::endl << std::endl << std::endl;
+
 	printAllEntriesInDirectory( fileManager );
 
-	std::cout << "Navigate through FAT16 file system (type 'print' to print current directory or type 'quit' to exit)" << std::endl;
+	std::cout << "Navigate through FAT16 file system (type 'print' to print current directory, type 'delete' to delete an entry, "
+		<< "type 'write' to write a file, or type 'quit' to exit)" << std::endl;
+
 	while ( true )
 	{
 		std::string inputVal;
@@ -172,6 +188,110 @@ int main()
 		{
 			printAllEntriesInDirectory( fileManager );
 		}
+		else if ( inputVal == "delete" )
+		{
+			std::cout << "Delete entry by number: ";
+			std::getline( std::cin, inputVal );
+
+			try
+			{
+				unsigned int entryNum = static_cast<unsigned int>( std::stoi(inputVal) );
+				std::cout << "Deleting: " << std::to_string( entryNum ) << std::endl;
+
+				bool success = fileManager.deleteEntry( entryNum );
+				if ( success )
+				{
+					std::cout << "Successful deletion" << std::endl;
+				}
+				else
+				{
+					std::cout << "Unable to delete" << std::endl;
+				}
+			}
+			catch ( std::invalid_argument )
+			{
+				std::cout << "Couldn't convert that string to a valid number" << std::endl;
+			}
+			catch ( std::out_of_range )
+			{
+				std::cout << "This number is out of integer range" << std::endl;
+			}
+		}
+		else if ( inputVal == "write" )
+		{
+			std::cout << "File name (extension will be .txt): ";
+			std::getline( std::cin, inputVal );
+
+			if ( inputVal.length() > 8 )
+			{
+				std::cout << "This filename is too large, must be 8 characters max" << std::endl;
+			}
+			else
+			{
+				Fat16Entry newFile( inputVal, "txt" );
+				if ( ! fileManager.createEntry(newFile) )
+				{
+					std::cout << "Unable to create file" << std::endl;
+				}
+				else
+				{
+					while ( true )
+					{
+						std::cout << "Write characters to repeat (or 'end' to finalize the file): ";
+						std::getline( std::cin, inputVal );
+
+						if ( inputVal == "end" ) break;
+
+						std::string charsToRepeat = inputVal;
+						
+						std::cout << "How many times to repeat: ";
+						std::getline( std::cin, inputVal );
+
+						if ( inputVal == "end" ) break;
+
+						try
+						{
+							unsigned int numTimesToRepeat = static_cast<unsigned int>( std::stoi(inputVal) );
+							const char* characters = charsToRepeat.c_str();
+							unsigned int numCharsInString = strlen( characters );
+							SharedData<uint8_t> data =
+								SharedData<uint8_t>::MakeSharedData( numCharsInString * numTimesToRepeat );
+							for ( unsigned int byte = 0; byte < numCharsInString * numTimesToRepeat; byte++ )
+							{
+								data[byte] = static_cast<uint8_t>( characters[byte % numCharsInString] );
+							}
+
+							bool success = fileManager.writeToEntry( newFile, data );
+							if ( success )
+							{
+								std::cout << "Successful write" << std::endl;
+							}
+							else
+							{
+								std::cout << "Unable to write" << std::endl;
+							}
+						}
+						catch ( std::invalid_argument )
+						{
+							std::cout << "Couldn't convert that string to a valid number" << std::endl;
+						}
+						catch ( std::out_of_range )
+						{
+							std::cout << "This number is out of integer range" << std::endl;
+						}
+					}
+				}
+
+				if ( fileManager.finalizeEntry(newFile) )
+				{
+					std::cout << "File successfully finalized" << std::endl;
+				}
+				else
+				{
+					std::cout << "Unable to finalize file" << std::endl;
+				}
+			}
+		}
 		else
 		{
 			try
@@ -182,28 +302,31 @@ int main()
 				Fat16Entry entry = fileManager.selectEntry( entryNum );
 				printFat16Entry( entry );
 
-				SharedData<uint8_t> fileData = fileManager.getSelectedFileNextSector();
-				unsigned int fileDataByteCounter = 0;
-				for ( unsigned int character = 0; character < entry.getFileSizeInBytes(); character++ )
+				if ( fileManager.readEntry(entry) )
 				{
-					if ( character == 0 )
+					SharedData<uint8_t> fileData = fileManager.getSelectedFileNextSector( entry );
+					unsigned int fileDataByteCounter = 0;
+					for ( unsigned int character = 0; character < entry.getFileSizeInBytes(); character++ )
 					{
-						std::cout << std::endl;
-						std::cout << "FILE OUTPUT ------------------------------------------------------" << std::endl;
+						if ( character == 0 )
+						{
+							std::cout << std::endl;
+							std::cout << "FILE OUTPUT ------------------------------------------------------" << std::endl;
+						}
+
+						// if we've read all the bytes in this sector, get a new one
+						if ( fileDataByteCounter == fileData.getSizeInBytes() )
+						{
+							fileData = fileManager.getSelectedFileNextSector( entry );
+							fileDataByteCounter = 0;
+						}
+
+						std::cout << fileData[fileDataByteCounter];
+
+						fileDataByteCounter++;
 					}
-
-					// if we've read all the bytes in this sector, get a new one
-					if ( fileDataByteCounter == fileData.getSizeInBytes() )
-					{
-						fileData = fileManager.getSelectedFileNextSector();
-						fileDataByteCounter = 0;
-					}
-
-					std::cout << fileData[fileDataByteCounter];
-
-					fileDataByteCounter++;
+					std::cout << std::endl;
 				}
-				std::cout << std::endl;
 			}
 			catch ( std::invalid_argument )
 			{
