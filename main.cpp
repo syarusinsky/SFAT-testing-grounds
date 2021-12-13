@@ -1,6 +1,3 @@
-// to mount sd card image sudo mount -o loop,offset=65536,umask=000 /home/siike92/SFAT-testing-grounds/SDCard.img /home/siike92/mnt/sd
-// where offset = block size(usually 512) * start block(usually 128)
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
