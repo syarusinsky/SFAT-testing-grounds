@@ -228,6 +228,8 @@ int main()
 			}
 			else
 			{
+				bool needToFinalize = true;
+
 				Fat16Entry newFile( inputVal, "txt" );
 				if ( ! fileManager.createEntry(newFile) )
 				{
@@ -243,11 +245,34 @@ int main()
 						if ( inputVal == "end" ) break;
 
 						std::string charsToRepeat = inputVal;
-						
-						std::cout << "How many times to repeat: ";
+
+						std::cout << "How many times to repeat (or 'flush' to finalize the file with the current text): ";
 						std::getline( std::cin, inputVal );
 
-						if ( inputVal == "end" ) break;
+						if ( inputVal == "flush" )
+						{
+							const char* characters = charsToRepeat.c_str();
+							unsigned int numCharsInString = strlen( characters );
+							SharedData<uint8_t> data = SharedData<uint8_t>::MakeSharedData( numCharsInString );
+							for ( unsigned int byte = 0; byte < numCharsInString; byte++ )
+							{
+								data[byte] = static_cast<uint8_t>( characters[byte % numCharsInString] );
+							}
+
+							bool success = fileManager.flushToEntry( newFile, data );
+							if ( success )
+							{
+								std::cout << "Successful flush" << std::endl;
+							}
+							else
+							{
+								std::cout << "Unable to flush" << std::endl;
+							}
+
+							needToFinalize = false;
+
+							break;
+						}
 
 						try
 						{
@@ -282,13 +307,16 @@ int main()
 					}
 				}
 
-				if ( fileManager.finalizeEntry(newFile) )
+				if ( needToFinalize )
 				{
-					std::cout << "File successfully finalized" << std::endl;
-				}
-				else
-				{
-					std::cout << "Unable to finalize file" << std::endl;
+					if ( fileManager.finalizeEntry(newFile) )
+					{
+						std::cout << "File successfully finalized" << std::endl;
+					}
+					else
+					{
+						std::cout << "Unable to finalize file" << std::endl;
+					}
 				}
 			}
 		}
