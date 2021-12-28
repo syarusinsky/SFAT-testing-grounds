@@ -10,6 +10,7 @@
 #include "PartitionTable.hpp"
 #include "BootSector.hpp"
 #include "Fat16FileManager.hpp"
+#include "IAllocator.hpp"
 
 void printFat16Entry (const Fat16Entry& entry)
 {
@@ -146,7 +147,10 @@ int main()
 		std::cout << "Couldn't find file :(" << std::endl;
 	}
 
-	Fat16FileManager fileManager( sdCardFile );
+	uint8_t blockOfMemory[524288]; // 512kB
+	IAllocator allocator( blockOfMemory, 524288 );
+
+	Fat16FileManager fileManager( sdCardFile, &allocator );
 	if ( ! fileManager.isValidFatFileSystem() )
 	{
 		std::cout << "Couldn't find a valid FAT file system :(" << std::endl;
