@@ -116,20 +116,20 @@ void printPartitionTable (const PartitionTable& partitionTable)
 
 void printAllEntriesInDirectory (Fat16FileManager& fileManager)
 {
-	std::vector<Fat16Entry>& directoryEntries = fileManager.getCurrentDirectoryEntries();
-	std::vector<Fat16Entry>::iterator entry = directoryEntries.begin();
+	std::vector<Fat16Entry*>& directoryEntries = fileManager.getCurrentDirectoryEntries();
+	std::vector<Fat16Entry*>::iterator entry = directoryEntries.begin();
 
 	unsigned int entryNum = 0;
-	while ( ! entry->isUnusedEntry() && entry != directoryEntries.end() )
+	while ( ! (*entry)->isUnusedEntry() && entry != directoryEntries.end() )
 	{
 
-		if ( ! entry->isDeletedEntry()
-				&& ! entry->isHiddenEntry()
-				&& ! entry->isSystemFile()
-				&& ! entry->isDiskVolumeLabel() )
+		if ( ! (*entry)->isDeletedEntry()
+				&& ! (*entry)->isHiddenEntry()
+				&& ! (*entry)->isSystemFile()
+				&& ! (*entry)->isDiskVolumeLabel() )
 		{
 			std::cout << "ENTRY NUMBER " << std::to_string( entryNum ) << " ------------------" << std::endl;
-			printFat16Entry( *entry );
+			printFat16Entry( **entry );
 			std::cout << std::endl;
 
 		}
